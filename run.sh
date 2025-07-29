@@ -76,14 +76,14 @@ print_header "Upgrading pip..."
 #pip install --upgrade pip
 
 # Install dependencies
-#print_header "Installing Python dependencies..."
-#if [ -f "requirements.txt" ]; then
-#    pip install -r requirements.txt
-#    print_status "Dependencies installed successfully"
-#else
-#    print_error "requirements.txt not found!"
-#    exit 1
-#fi
+print_header "Installing Python dependencies..."
+if [ -f "requirements.txt" ]; then
+    pip install -r requirements.txt
+    print_status "Dependencies installed successfully"
+else
+    print_error "requirements.txt not found!"
+    exit 1
+fi
 
 # Check if .env file exists
 print_header "Checking configuration..."

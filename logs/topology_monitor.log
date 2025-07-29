@@ -1,0 +1,75 @@
+2025-07-29 00:08:24,990 - __main__ - INFO - Retrieved hostname 'device-10-10-10-16' for device 10.10.10.16
+2025-07-29 00:08:54,875 - __main__ - INFO - Starting Fortinet Topology Monitor Web API...
+2025-07-29 00:09:02,881 - main_monitor - INFO - Retrieved hostname 'device-10-10-10-16' for device 10.10.10.16
+2025-07-29 00:09:10,888 - main_monitor - INFO - Retrieved hostname 'device-10-10-10-11' for device 10.10.10.11
+2025-07-29 00:09:10,888 - main_monitor - INFO - Initializing Fortinet Topology Monitor...
+2025-07-29 00:09:10,942 - main_monitor - INFO - Database initialized successfully
+2025-07-29 00:09:10,943 - main_monitor - INFO - Monitor initialized with 2 devices
+2025-07-29 00:09:10,943 - __main__ - INFO - Web API started successfully
+2025-07-29 00:10:14,603 - main_monitor - INFO - Starting monitoring cycle...
+2025-07-29 00:10:14,603 - main_monitor - INFO - Collecting LLDP neighbors from device-10-10-10-16 (10.10.10.16)
+2025-07-29 00:10:14,851 - paramiko.transport - INFO - Connected (version 2.0, client OpenSSH_9.6)
+2025-07-29 00:10:15,528 - paramiko.transport - INFO - Authentication (publickey) failed.
+2025-07-29 00:10:15,760 - paramiko.transport - INFO - Authentication (password) successful!
+2025-07-29 00:10:18,785 - main_monitor - INFO - Collected 11 valid neighbors from device-10-10-10-16 (filtered out invalid entries)
+2025-07-29 00:10:18,785 - main_monitor - INFO - Collecting LLDP neighbors from device-10-10-10-11 (10.10.10.11)
+2025-07-29 00:10:19,007 - paramiko.transport - INFO - Connected (version 2.0, client OpenSSH_9.6)
+2025-07-29 00:10:19,651 - paramiko.transport - INFO - Authentication (publickey) failed.
+2025-07-29 00:10:19,879 - paramiko.transport - INFO - Authentication (password) successful!
+2025-07-29 00:10:23,369 - main_monitor - INFO - Collected 26 valid neighbors from device-10-10-10-11 (filtered out invalid entries)
+2025-07-29 00:10:23,369 - main_monitor - INFO - Total valid LLDP neighbors collected: 37
+2025-07-29 00:10:23,444 - main_monitor - INFO - Stored 37 LLDP neighbors in database
+2025-07-29 00:10:23,445 - main_monitor - INFO - Collecting topology data from NetBox...
+2025-07-29 00:10:23,790 - netbox_topology - ERROR - NetBox API request failed: HTTPSConnectionPool(host='netbox.cselab.io', port=443): Max retries exceeded with url: /api/dcim/cables/ (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)')))
+2025-07-29 00:10:23,790 - netbox_topology - ERROR - Failed to fetch cables from NetBox: HTTPSConnectionPool(host='netbox.cselab.io', port=443): Max retries exceeded with url: /api/dcim/cables/ (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)')))
+2025-07-29 00:10:23,790 - netbox_topology - INFO - Processed 0 valid connections from NetBox cables
+2025-07-29 00:10:23,791 - main_monitor - INFO - Collected 0 connections from NetBox
+2025-07-29 00:10:23,791 - main_monitor - INFO - No NetBox data available for comparison
+2025-07-29 00:10:23,802 - main_monitor - INFO - Stored 0 topology mismatches for check 1
+2025-07-29 00:10:23,802 - main_monitor - INFO - Monitoring cycle completed:
+2025-07-29 00:10:23,802 - main_monitor - INFO -   - LLDP neighbors: 37
+2025-07-29 00:10:23,802 - main_monitor - INFO -   - NetBox connections: 0
+2025-07-29 00:10:23,802 - main_monitor - INFO -   - Matching connections: 0
+2025-07-29 00:10:23,802 - main_monitor - INFO -   - Mismatches: 0
+2025-07-29 00:11:42,426 - main_monitor - INFO - Shutting down monitor...
+2025-07-29 00:11:42,427 - __main__ - INFO - Web API shut down
+2025-07-29 00:15:14,048 - __main__ - INFO - Starting Fortinet Topology Monitor Web API...
+2025-07-29 00:15:14,293 - paramiko.transport - INFO - Connected (version 2.0, client OpenSSH_9.6)
+2025-07-29 00:15:14,927 - paramiko.transport - INFO - Authentication (publickey) failed.
+2025-07-29 00:15:15,155 - paramiko.transport - INFO - Authentication (password) successful!
+2025-07-29 00:15:18,142 - main_monitor - INFO - Retrieved hostname 'US03-FS-3032E-L' for device 10.10.10.16
+2025-07-29 00:15:18,363 - paramiko.transport - INFO - Connected (version 2.0, client OpenSSH_9.6)
+2025-07-29 00:15:19,031 - paramiko.transport - INFO - Authentication (publickey) failed.
+2025-07-29 00:15:19,258 - paramiko.transport - INFO - Authentication (password) successful!
+2025-07-29 00:15:22,243 - main_monitor - INFO - Retrieved hostname 'US01-FS-2048F-L' for device 10.10.10.11
+2025-07-29 00:15:22,243 - main_monitor - INFO - Initializing Fortinet Topology Monitor...
+2025-07-29 00:15:22,246 - main_monitor - INFO - Database initialized successfully
+2025-07-29 00:15:22,246 - main_monitor - INFO - Monitor initialized with 2 devices
+2025-07-29 00:15:22,246 - __main__ - INFO - Web API started successfully
+2025-07-29 00:16:08,856 - main_monitor - INFO - Starting monitoring cycle...
+2025-07-29 00:16:08,856 - main_monitor - INFO - Collecting LLDP neighbors from US03-FS-3032E-L (10.10.10.16)
+2025-07-29 00:16:09,083 - paramiko.transport - INFO - Connected (version 2.0, client OpenSSH_9.6)
+2025-07-29 00:16:09,990 - paramiko.transport - INFO - Authentication (publickey) failed.
+2025-07-29 00:16:10,233 - paramiko.transport - INFO - Authentication (password) successful!
+2025-07-29 00:16:13,222 - main_monitor - INFO - Collected 11 valid neighbors from US03-FS-3032E-L (filtered out invalid entries)
+2025-07-29 00:16:13,222 - main_monitor - INFO - Collecting LLDP neighbors from US01-FS-2048F-L (10.10.10.11)
+2025-07-29 00:16:13,446 - paramiko.transport - INFO - Connected (version 2.0, client OpenSSH_9.6)
+2025-07-29 00:16:14,128 - paramiko.transport - INFO - Authentication (publickey) failed.
+2025-07-29 00:16:14,374 - paramiko.transport - INFO - Authentication (password) successful!
+2025-07-29 00:16:17,868 - main_monitor - INFO - Collected 26 valid neighbors from US01-FS-2048F-L (filtered out invalid entries)
+2025-07-29 00:16:17,868 - main_monitor - INFO - Total valid LLDP neighbors collected: 37
+2025-07-29 00:16:17,924 - main_monitor - INFO - Stored 37 LLDP neighbors in database
+2025-07-29 00:16:17,925 - main_monitor - INFO - Collecting topology data from NetBox...
+2025-07-29 00:17:26,438 - netbox_topology - INFO - Fetched 4392 cables from NetBox
+2025-07-29 00:17:26,446 - netbox_topology - INFO - Processed 1695 valid connections from NetBox cables
+2025-07-29 00:17:26,452 - main_monitor - INFO - Collected 1695 connections from NetBox
+2025-07-29 00:17:26,458 - netbox_topology - INFO - Topology comparison: 37 LLDP, 1695 NetBox, 22 matching, 3383 mismatches
+2025-07-29 00:17:26,783 - main_monitor - INFO - Stored 3383 topology mismatches for check 2
+2025-07-29 00:17:26,784 - main_monitor - INFO - Monitoring cycle completed:
+2025-07-29 00:17:26,784 - main_monitor - INFO -   - LLDP neighbors: 37
+2025-07-29 00:17:26,784 - main_monitor - INFO -   - NetBox connections: 1695
+2025-07-29 00:17:26,784 - main_monitor - INFO -   - Matching connections: 22
+2025-07-29 00:17:26,784 - main_monitor - INFO -   - Mismatches: 3383
+2025-07-29 00:17:26,784 - main_monitor - WARNING - Topology mismatches detected (1 consecutive)
+2025-07-29 00:19:34,673 - main_monitor - INFO - Shutting down monitor...
+2025-07-29 00:19:34,673 - __main__ - INFO - Web API shut down

@@ -18,6 +18,7 @@ class NetBoxAPI:
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         })
+        self.session.verify = False
 
     def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """Make a request to NetBox API"""
