@@ -14,7 +14,7 @@ from pathlib import Path
 from config import settings
 from models import LLDPNeighborRaw, LLDPNeighbor, NetworkConnection, TopologyDifference
 from python_lldp_neigh import get_lldp_neighbors, get_device_hostname
-from netbox_topology_with_site_filter import get_netbox_connections, compare_lldp_netbox_topology
+from netbox_topology import get_netbox_connections, compare_lldp_netbox_topology
 
 # Configure logging
 logging.basicConfig(
@@ -37,7 +37,7 @@ class FortinetTopologyMonitor:
         """Parse device list from configuration and get actual hostnames"""
         device_ips = settings.fgt_devices.split(',')
         devices = []
-
+        
         for ip in device_ips:
             ip = ip.strip()
             try:
@@ -52,7 +52,7 @@ class FortinetTopologyMonitor:
             except Exception as e:
                 logger.warning(f"Failed to get hostname for {ip}, using IP-based name: {e}")
                 hostname = f'device-{ip.replace(".", "-")}'
-
+            
             devices.append({
                 'ip': ip,
                 'username': settings.fgt_username,
@@ -185,22 +185,19 @@ class FortinetTopologyMonitor:
     async def collect_netbox_topology(self) -> List[Dict]:
         """Collect topology data from NetBox"""
         if not settings.netbox_url or not settings.netbox_token:
-            logger.warning("NetBox integration not configured")
+            logger.warning("NetBox integration not configured, skipping NetBox data collection")
             return []
 
         try:
             logger.info("Collecting topology data from NetBox...")
             
-            # Add site filter here
-            site_filter = "your-site-name"  # or get from config
-            
+            # Run NetBox API calls in executor to avoid blocking
             loop = asyncio.get_event_loop()
             netbox_connections = await loop.run_in_executor(
                 None, 
                 get_netbox_connections, 
                 settings.netbox_url, 
-                settings.netbox_token,
-                site_filter  # <-- Add this parameter
+                settings.netbox_token
             )
             
             logger.info(f"Collected {len(netbox_connections)} connections from NetBox")
@@ -244,6 +241,46 @@ class FortinetTopologyMonitor:
         )
 
         return comparison_result
+
+    async def save_matching_connections(self, comparison_result: Dict):
+        """Save matching connections to a JSON file in the log directory"""
+        try:
+            # Get the log file directory
+            log_file_path = Path(settings.log_file)
+            log_directory = log_file_path.parent
+            
+            # Create filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            matches_filename = f"matching_connections_{timestamp}.json"
+            matches_filepath = log_directory / matches_filename
+            
+            # Prepare data to save
+            matches_data = {
+                "timestamp": datetime.now().isoformat(),
+                "summary": {
+                    "total_matches": comparison_result['matching_count'],
+                    "lldp_count": comparison_result['lldp_count'],
+                    "netbox_count": comparison_result['netbox_count'],
+                    "mismatch_count": comparison_result['mismatch_count']
+                },
+                "matching_connections": comparison_result['matching_connections']
+            }
+            
+            # Save to file
+            with open(matches_filepath, 'w') as f:
+                json.dump(matches_data, f, indent=2, default=str)
+            
+            logger.info(f"Saved {comparison_result['matching_count']} matching connections to {matches_filepath}")
+            
+            # Also save latest matches (overwrite each time)
+            latest_matches_filepath = log_directory / "latest_matching_connections.json"
+            with open(latest_matches_filepath, 'w') as f:
+                json.dump(matches_data, f, indent=2, default=str)
+            
+            logger.info(f"Updated latest matching connections file: {latest_matches_filepath}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save matching connections to file: {e}")
 
     async def store_topology_comparison(self, check_id: int, comparison_result: Dict):
         """Store topology comparison results in database"""
@@ -362,6 +399,9 @@ class FortinetTopologyMonitor:
             # Compare topologies
             comparison_result = await self.compare_topologies(lldp_neighbors, netbox_connections)
 
+            # Save matching connections to file in log directory
+            await self.save_matching_connections(comparison_result)
+
             # Record the check in database
             async with aiosqlite.connect(self.db_path) as db:
                 cursor = await db.execute("""
@@ -375,7 +415,7 @@ class FortinetTopologyMonitor:
                     len(self.devices)
                 ))
                 await db.commit()
-
+                
                 # Get the check ID for storing mismatches
                 check_id = cursor.lastrowid
 
@@ -393,7 +433,7 @@ class FortinetTopologyMonitor:
             if comparison_result['mismatch_count'] > 0:
                 self.consecutive_mismatches += 1
                 logger.warning(f"Topology mismatches detected ({self.consecutive_mismatches} consecutive)")
-
+                
                 if self.consecutive_mismatches >= settings.alert_threshold:
                     logger.error(f"Alert threshold reached: {self.consecutive_mismatches} consecutive mismatches")
                     # Here you could trigger email alerts or other notifications
