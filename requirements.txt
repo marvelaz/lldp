@@ -1,0 +1,32 @@
+# Core dependencies
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+aiosqlite>=0.19.0
+asyncio-mqtt>=0.13.0
+
+# SSH and network connectivity
+paramiko>=3.3.0
+netmiko>=4.2.0
+
+# Email notifications
+aiosmtplib>=2.0.0
+
+# HTTP client for NetBox API
+httpx>=0.24.0
+
+# Data processing
+python-multipart>=0.0.6
+
+# Development and testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Optional: For advanced network automation
+# nornir>=3.4.0
+# nornir-netmiko>=1.0.0
+# nornir-utils>=0.2.0
+
+# Optional: For NetBox integration
+# pynetbox>=7.0.0
