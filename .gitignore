@@ -1,5 +1,2 @@
-env.ini
 .DS_Store
-venv/
 .mypy_cache
-.env

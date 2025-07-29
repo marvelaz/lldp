@@ -14,7 +14,7 @@ from pathlib import Path
 from config import settings
 from models import LLDPNeighborRaw, LLDPNeighbor, NetworkConnection, TopologyDifference
 from python_lldp_neigh import get_lldp_neighbors, get_device_hostname
-from netbox_topology import get_netbox_connections, compare_lldp_netbox_topology
+from netbox_topology_with_site_filter import get_netbox_connections, compare_lldp_netbox_topology
 
 # Configure logging
 logging.basicConfig(
@@ -185,24 +185,27 @@ class FortinetTopologyMonitor:
     async def collect_netbox_topology(self) -> List[Dict]:
         """Collect topology data from NetBox"""
         if not settings.netbox_url or not settings.netbox_token:
-            logger.warning("NetBox integration not configured, skipping NetBox data collection")
+            logger.warning("NetBox integration not configured")
             return []
 
         try:
             logger.info("Collecting topology data from NetBox...")
-
-            # Run NetBox API calls in executor to avoid blocking
+            
+            # Add site filter here
+            site_filter = "your-site-name"  # or get from config
+            
             loop = asyncio.get_event_loop()
             netbox_connections = await loop.run_in_executor(
                 None, 
                 get_netbox_connections, 
                 settings.netbox_url, 
-                settings.netbox_token
+                settings.netbox_token,
+                site_filter  # <-- Add this parameter
             )
-
+            
             logger.info(f"Collected {len(netbox_connections)} connections from NetBox")
             return netbox_connections
-
+            
         except Exception as e:
             logger.error(f"Failed to collect NetBox topology: {e}")
             return []

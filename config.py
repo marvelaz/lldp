@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # === NetBox Integration (Optional) ===
     netbox_url: Optional[str] = Field(default="", env="NETBOX_URL")
     netbox_token: Optional[str] = Field(default="", env="NETBOX_TOKEN")
-
+    netbox_site_filter: Optional[str] = Field(default="", env="NETBOX_SITE_FILTER")
     # === Logging Settings ===
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     log_file: str = Field(default="./logs/topology_monitor.log", env="LOG_FILE")
