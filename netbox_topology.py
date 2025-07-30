@@ -1,31 +1,45 @@
 import requests
 import json
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 from urllib.parse import urljoin
+import urllib3
+
+# Disable SSL warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
 class NetBoxAPI:
     """NetBox API client for fetching topology data"""
 
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, token: str, site_filter: Optional[str] = None):
         self.base_url = base_url.rstrip('/')
         self.token = token
+        self.site_filter = site_filter
         self.session = requests.Session()
         self.session.headers.update({
             'Authorization': f'Token {token}',
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         })
+        # Disable SSL verification for self-signed certificates
         self.session.verify = False
 
     def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """Make a request to NetBox API"""
         url = urljoin(f"{self.base_url}/", f"api/{endpoint.lstrip('/')}")
 
+        # Add site filter to params if specified
+        if params is None:
+            params = {}
+
+        if self.site_filter and 'site' not in params:
+            params['site'] = self.site_filter
+
         try:
-            response = self.session.get(url, params=params or {})
+            logger.debug(f"NetBox API request: {url} with params: {params}")
+            response = self.session.get(url, params=params, verify=False)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -36,6 +50,10 @@ class NetBoxAPI:
         """Fetch all pages of results from a paginated NetBox API endpoint"""
         all_results = []
         params = params or {}
+
+        # Add site filter if specified and not already in params
+        if self.site_filter and 'site' not in params:
+            params['site'] = self.site_filter
 
         while True:
             data = self._make_request(endpoint, params)
@@ -55,10 +73,108 @@ class NetBoxAPI:
 
         return all_results
 
-def get_netbox_devices(netbox_url: str, netbox_token: str) -> List[Dict]:
+def get_device_names_from_config(device_config_string: str) -> Set[str]:
     """
-    Fetch all devices from NetBox
-    Returns a list of device dictionaries
+    Extract device names/IPs from configuration string
+
+    Args:
+        device_config_string: Comma-separated string of device IPs from config
+
+    Returns:
+        Set of device identifiers (IPs and potentially hostnames)
+    """
+    device_identifiers = set()
+
+    if device_config_string:
+        device_ips = device_config_string.split(',')
+        for ip in device_ips:
+            ip = ip.strip()
+            if ip:
+                device_identifiers.add(ip)
+                # Also add IP-based hostname format for matching
+                device_identifiers.add(f'device-{ip.replace(".", "-")}')
+
+    return device_identifiers
+
+def filter_netbox_cables(cables: List[Dict], allowed_devices: Set[str]) -> List[Dict]:
+    """
+    Filter NetBox cables based on status, type, and device involvement
+
+    Args:
+        cables: List of cable dictionaries from NetBox API
+        allowed_devices: Set of device names/IPs that we want to monitor
+
+    Returns:
+        Filtered list of cables
+    """
+    filtered_cables = []
+
+    for cable in cables:
+        try:
+            # Filter 1: Only "connected" status cables
+            status = cable.get('status', {})
+            if isinstance(status, dict):
+                status_label = status.get('label', '').lower()
+            else:
+                status_label = str(status).lower()
+
+            if status_label != 'connected':
+                logger.debug(f"Skipping cable {cable.get('id')} - status: {status_label}")
+                continue
+
+            # Filter 2: Exclude POWER and CONSOLE cables
+            cable_type = cable.get('type', {})
+            if isinstance(cable_type, dict):
+                type_label = cable_type.get('label', '').lower()
+            else:
+                type_label = str(cable_type).lower()
+
+            if type_label in ('power', 'console'):
+                logger.debug(f"Skipping cable {cable.get('id')} - type: {type_label}")
+                continue
+
+            # Filter 3: Only cables involving our monitored devices
+            cable_involves_our_devices = False
+
+            # Check A terminations
+            a_terminations = cable.get('a_terminations', [])
+            for a_term in a_terminations:
+                device_info = a_term.get('object', {}).get('device', {})
+                if device_info:
+                    device_name = device_info.get('name', '')
+                    if device_name in allowed_devices:
+                        cable_involves_our_devices = True
+                        break
+
+            # Check B terminations if not already found
+            if not cable_involves_our_devices:
+                b_terminations = cable.get('b_terminations', [])
+                for b_term in b_terminations:
+                    device_info = b_term.get('object', {}).get('device', {})
+                    if device_info:
+                        device_name = device_info.get('name', '')
+                        if device_name in allowed_devices:
+                            cable_involves_our_devices = True
+                            break
+
+            if not cable_involves_our_devices:
+                logger.debug(f"Skipping cable {cable.get('id')} - doesn't involve monitored devices")
+                continue
+
+            # Cable passed all filters
+            filtered_cables.append(cable)
+
+        except Exception as e:
+            logger.warning(f"Error filtering cable {cable.get('id', 'unknown')}: {e}")
+            continue
+
+    logger.info(f"Filtered {len(cables)} cables down to {len(filtered_cables)} relevant cables")
+    return filtered_cables
+
+def get_netbox_sites(netbox_url: str, netbox_token: str) -> List[Dict]:
+    """
+    Fetch all sites from NetBox
+    Returns a list of site dictionaries
     """
     if not netbox_url or not netbox_token:
         logger.warning("NetBox URL or token not configured")
@@ -67,44 +183,140 @@ def get_netbox_devices(netbox_url: str, netbox_token: str) -> List[Dict]:
     try:
         api = NetBoxAPI(netbox_url, netbox_token)
 
-        # Fetch all devices
+        # Fetch all sites (no site filter for this call)
+        sites = api.get_all_pages('dcim/sites/')
+
+        logger.info(f"Fetched {len(sites)} sites from NetBox")
+        return sites
+
+    except Exception as e:
+        logger.error(f"Failed to fetch sites from NetBox: {e}")
+        return []
+
+def get_netbox_devices(netbox_url: str, netbox_token: str, site_filter: Optional[str] = None) -> List[Dict]:
+    """
+    Fetch devices from NetBox, optionally filtered by site
+
+    Args:
+        netbox_url: NetBox base URL
+        netbox_token: NetBox API token
+        site_filter: Site name or slug to filter by (optional)
+
+    Returns:
+        List of device dictionaries
+    """
+    if not netbox_url or not netbox_token:
+        logger.warning("NetBox URL or token not configured")
+        return []
+
+    try:
+        api = NetBoxAPI(netbox_url, netbox_token, site_filter)
+
+        # Fetch devices (site filter applied automatically if specified)
         devices = api.get_all_pages('dcim/devices/')
 
-        logger.info(f"Fetched {len(devices)} devices from NetBox")
+        if site_filter:
+            logger.info(f"Fetched {len(devices)} devices from NetBox for site '{site_filter}'")
+        else:
+            logger.info(f"Fetched {len(devices)} devices from NetBox (all sites)")
         return devices
 
     except Exception as e:
         logger.error(f"Failed to fetch devices from NetBox: {e}")
         return []
 
-def get_netbox_cables(netbox_url: str, netbox_token: str) -> List[Dict]:
+def get_netbox_cables(netbox_url: str, netbox_token: str, site_filter: Optional[str] = None, 
+                     allowed_devices: Optional[Set[str]] = None) -> List[Dict]:
     """
-    Fetch all cables (connections) from NetBox
-    Returns a list of cable dictionaries representing physical connections
+    Fetch cables (connections) from NetBox with comprehensive filtering
+
+    Args:
+        netbox_url: NetBox base URL
+        netbox_token: NetBox API token
+        site_filter: Site name or slug to filter by (optional)
+        allowed_devices: Set of device names/IPs to filter by (optional)
+
+    Returns:
+        List of filtered cable dictionaries representing physical connections
     """
     if not netbox_url or not netbox_token:
         logger.warning("NetBox URL or token not configured")
         return []
 
     try:
-        api = NetBoxAPI(netbox_url, netbox_token)
+        api = NetBoxAPI(netbox_url, netbox_token, site_filter)
 
-        # Fetch all cables
-        cables = api.get_all_pages('dcim/cables/')
+        # Fetch all cables (site filter applied automatically if specified)
+        all_cables = api.get_all_pages('dcim/cables/')
 
-        logger.info(f"Fetched {len(cables)} cables from NetBox")
-        return cables
+        if site_filter:
+            logger.info(f"Fetched {len(all_cables)} raw cables from NetBox for site '{site_filter}'")
+        else:
+            logger.info(f"Fetched {len(all_cables)} raw cables from NetBox (all sites)")
+
+        # Apply additional filtering if allowed_devices is provided
+        if allowed_devices:
+            filtered_cables = filter_netbox_cables(all_cables, allowed_devices)
+        else:
+            # Still apply status and type filtering even without device filtering
+            filtered_cables = []
+            for cable in all_cables:
+                try:
+                    # Filter by status
+                    status = cable.get('status', {})
+                    if isinstance(status, dict):
+                        status_label = status.get('label', '').lower()
+                    else:
+                        status_label = str(status).lower()
+
+                    if status_label != 'connected':
+                        continue
+
+                    # Filter by type
+                    cable_type = cable.get('type', {})
+                    if isinstance(cable_type, dict):
+                        type_label = cable_type.get('label', '').lower()
+                    else:
+                        type_label = str(cable_type).lower()
+
+                    if type_label in ('power', 'console'):
+                        continue
+
+                    filtered_cables.append(cable)
+
+                except Exception as e:
+                    logger.warning(f"Error filtering cable {cable.get('id', 'unknown')}: {e}")
+                    continue
+
+        logger.info(f"After filtering: {len(filtered_cables)} relevant cables")
+        return filtered_cables
 
     except Exception as e:
         logger.error(f"Failed to fetch cables from NetBox: {e}")
         return []
 
-def get_netbox_connections(netbox_url: str, netbox_token: str) -> List[Dict]:
+def get_netbox_connections(netbox_url: str, netbox_token: str, site_filter: Optional[str] = None,
+                          device_config_string: Optional[str] = None) -> List[Dict]:
     """
-    Fetch and process NetBox topology connections
-    Returns a list of connection dictionaries in a standardized format
+    Fetch and process NetBox topology connections with comprehensive filtering
+
+    Args:
+        netbox_url: NetBox base URL
+        netbox_token: NetBox API token
+        site_filter: Site name or slug to filter by (optional)
+        device_config_string: Comma-separated string of device IPs from config (optional)
+
+    Returns:
+        List of connection dictionaries in a standardized format
     """
-    cables = get_netbox_cables(netbox_url, netbox_token)
+    # Parse allowed devices from config if provided
+    allowed_devices = None
+    if device_config_string:
+        allowed_devices = get_device_names_from_config(device_config_string)
+        logger.info(f"Filtering NetBox connections for devices: {allowed_devices}")
+
+    # Fetch filtered cables
+    cables = get_netbox_cables(netbox_url, netbox_token, site_filter, allowed_devices)
     connections = []
 
     for cable in cables:
@@ -129,11 +341,17 @@ def get_netbox_connections(netbox_url: str, netbox_token: str) -> List[Dict]:
                     elif a_term.get('object_type') == 'dcim.frontport':
                         a_device = a_term.get('object', {}).get('device', {}).get('name')
                         a_interface = a_term.get('object', {}).get('name')
+                    elif a_term.get('object_type') == 'dcim.rearport':
+                        a_device = a_term.get('object', {}).get('device', {}).get('name')
+                        a_interface = a_term.get('object', {}).get('name')
 
                     if b_term.get('object_type') == 'dcim.interface':
                         b_device = b_term.get('object', {}).get('device', {}).get('name')
                         b_interface = b_term.get('object', {}).get('name')
                     elif b_term.get('object_type') == 'dcim.frontport':
+                        b_device = b_term.get('object', {}).get('device', {}).get('name')
+                        b_interface = b_term.get('object', {}).get('name')
+                    elif b_term.get('object_type') == 'dcim.rearport':
                         b_device = b_term.get('object', {}).get('device', {}).get('name')
                         b_interface = b_term.get('object', {}).get('name')
 
@@ -146,6 +364,7 @@ def get_netbox_connections(netbox_url: str, netbox_token: str) -> List[Dict]:
                             'interface_b': b_interface,
                             'cable_id': cable.get('id'),
                             'cable_label': cable.get('label', ''),
+                            'cable_type': cable.get('type', {}).get('label', 'Unknown'),
                             'status': cable.get('status', {}).get('label', 'Unknown')
                         }
                         connections.append(connection)
@@ -154,7 +373,15 @@ def get_netbox_connections(netbox_url: str, netbox_token: str) -> List[Dict]:
             logger.warning(f"Failed to process cable {cable.get('id', 'unknown')}: {e}")
             continue
 
-    logger.info(f"Processed {len(connections)} valid connections from NetBox cables")
+    if site_filter and device_config_string:
+        logger.info(f"Processed {len(connections)} valid connections from NetBox cables for site '{site_filter}' and specified devices")
+    elif site_filter:
+        logger.info(f"Processed {len(connections)} valid connections from NetBox cables for site '{site_filter}'")
+    elif device_config_string:
+        logger.info(f"Processed {len(connections)} valid connections from NetBox cables for specified devices")
+    else:
+        logger.info(f"Processed {len(connections)} valid connections from NetBox cables (all sites and devices)")
+
     return connections
 
 def compare_lldp_netbox_topology(lldp_neighbors: List[Dict], netbox_connections: List[Dict]) -> Dict:
@@ -268,12 +495,22 @@ if __name__ == "__main__":
     # Example configuration
     netbox_url = "https://netbox.example.com"
     netbox_token = "your-netbox-token"
+    site_filter = "datacenter-1"  # Optional: filter by site
+    device_config = "192.168.1.10,192.168.1.11,192.168.1.12"  # Optional: filter by devices
 
-    # Fetch NetBox data
-    devices = get_netbox_devices(netbox_url, netbox_token)
-    connections = get_netbox_connections(netbox_url, netbox_token)
+    # List available sites
+    sites = get_netbox_sites(netbox_url, netbox_token)
+    print(f"Available sites: {[site['name'] for site in sites]}")
+
+    # Fetch NetBox data (with optional site and device filtering)
+    devices = get_netbox_devices(netbox_url, netbox_token, site_filter)
+    connections = get_netbox_connections(netbox_url, netbox_token, site_filter, device_config)
 
     print(f"Found {len(devices)} devices and {len(connections)} connections in NetBox")
+    if site_filter:
+        print(f"Filtered by site: {site_filter}")
+    if device_config:
+        print(f"Filtered by devices: {device_config}")
 
     # Example LLDP data (would come from your LLDP collection)
     example_lldp = [
