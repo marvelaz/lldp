@@ -1,3 +1,8 @@
 .DS_Store
 .mypy_cache
 env.ini
+venv/
+logs/
+data/
+__pycache__/
+
