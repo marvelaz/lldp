@@ -432,8 +432,17 @@ def get_netbox_connections(netbox_url: str, netbox_token: str, site_filter: Opti
             b_terminations = cable.get('b_terminations', [])
 
             # Process each A-B termination pair
+            #for a_term in a_terminations:
+            #    for b_term in b_terminations:
             for a_term in a_terminations:
+                if not isinstance(a_term, dict):
+                    logger.warning(f"Unexpected a_termination type: {type(a_term)} in cable {cable.get('id')}")
+                    continue
                 for b_term in b_terminations:
+                    if not isinstance(b_term, dict):
+                        logger.warning(f"Unexpected b_termination type: {type(b_term)} in cable {cable.get('id')}")
+                        continue
+
                     # Extract device and interface information
                     a_device = None
                     a_interface = None
