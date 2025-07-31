@@ -5,4 +5,4 @@ venv/
 logs/
 data/
 __pycache__/
-
+response.json
