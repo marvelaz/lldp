@@ -73,28 +73,123 @@ class NetBoxAPI:
 
         return all_results
 
-def get_device_names_from_config(device_config_string: str) -> Set[str]:
+def get_device_hostname_from_fortinet(host: str, username: str, password: str, port: int = 22) -> str:
     """
-    Extract device names/IPs from configuration string
+    Get the actual hostname from a Fortinet device using SSH
+    This is imported from python_lldp_neigh.py functionality
+
+    Args:
+        host: Device IP address
+        username: SSH username
+        password: SSH password
+        port: SSH port (default 22)
+
+    Returns:
+        Device hostname as string
+    """
+    import paramiko
+    import time
+
+    try:
+        # Create SSH client
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        # Connect to device
+        ssh.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=10,
+            allow_agent=False,
+            look_for_keys=False
+        )
+
+        # Create shell session
+        shell = ssh.invoke_shell()
+        time.sleep(1)
+
+        # Clear any initial output
+        shell.recv(1024)
+
+        # Send command to get hostname
+        shell.send('get system status\n')
+        time.sleep(2)
+
+        # Read output
+        output = shell.recv(4096).decode('utf-8')
+
+        # Parse hostname from output
+        for line in output.split('\n'):
+            if 'Hostname:' in line:
+                hostname = line.split('Hostname:')[1].strip()
+                logger.debug(f"Retrieved hostname '{hostname}' from device {host}")
+                ssh.close()
+                return hostname
+
+        # If hostname not found in expected format, try alternative
+        for line in output.split('\n'):
+            if line.strip() and not line.startswith('get ') and not line.startswith('#'):
+                # Sometimes the hostname appears in the prompt
+                if '#' in line:
+                    potential_hostname = line.split('#')[0].strip()
+                    if potential_hostname and len(potential_hostname) > 0:
+                        logger.debug(f"Retrieved hostname '{potential_hostname}' from prompt for device {host}")
+                        ssh.close()
+                        return potential_hostname
+
+        ssh.close()
+
+        # Fallback: use IP-based hostname
+        fallback_hostname = f'device-{host.replace(".", "-")}'
+        logger.warning(f"Could not parse hostname from device {host}, using fallback: {fallback_hostname}")
+        return fallback_hostname
+
+    except Exception as e:
+        logger.error(f"Failed to get hostname from device {host}: {e}")
+        # Fallback: use IP-based hostname
+        fallback_hostname = f'device-{host.replace(".", "-")}'
+        logger.warning(f"Using fallback hostname for {host}: {fallback_hostname}")
+        return fallback_hostname
+
+def get_allowed_hostnames_from_config(device_config_string: str, username: str, password: str, port: int = 22) -> Set[str]:
+    """
+    Get actual device hostnames from configuration string by querying each device
 
     Args:
         device_config_string: Comma-separated string of device IPs from config
+        username: SSH username for devices
+        password: SSH password for devices
+        port: SSH port for devices
 
     Returns:
-        Set of device identifiers (IPs and potentially hostnames)
+        Set of actual device hostnames as they appear in NetBox
     """
-    device_identifiers = set()
+    hostnames = set()
 
-    if device_config_string:
-        device_ips = device_config_string.split(',')
-        for ip in device_ips:
-            ip = ip.strip()
-            if ip:
-                device_identifiers.add(ip)
-                # Also add IP-based hostname format for matching
-                device_identifiers.add(f'device-{ip.replace(".", "-")}')
+    if not device_config_string:
+        logger.warning("No device configuration provided")
+        return hostnames
 
-    return device_identifiers
+    device_ips = [ip.strip() for ip in device_config_string.split(',') if ip.strip()]
+
+    logger.info(f"Resolving hostnames for {len(device_ips)} devices...")
+
+    for ip in device_ips:
+        try:
+            hostname = get_device_hostname_from_fortinet(ip, username, password, port)
+            hostnames.add(hostname)
+            logger.info(f"Device {ip} -> hostname: {hostname}")
+        except Exception as e:
+            logger.error(f"Failed to resolve hostname for {ip}: {e}")
+            # Add IP-based fallback
+            fallback = f'device-{ip.replace(".", "-")}'
+            hostnames.add(fallback)
+            logger.warning(f"Using fallback hostname for {ip}: {fallback}")
+
+    logger.info(f"Resolved {len(hostnames)} device hostnames: {hostnames}")
+    return hostnames
 
 def filter_netbox_cables(cables: List[Dict], allowed_devices: Set[str]) -> List[Dict]:
     """
@@ -102,12 +197,14 @@ def filter_netbox_cables(cables: List[Dict], allowed_devices: Set[str]) -> List[
 
     Args:
         cables: List of cable dictionaries from NetBox API
-        allowed_devices: Set of device names/IPs that we want to monitor
+        allowed_devices: Set of device hostnames that we want to monitor
 
     Returns:
         Filtered list of cables
     """
     filtered_cables = []
+
+    logger.debug(f"Filtering {len(cables)} cables for devices: {allowed_devices}")
 
     for cable in cables:
         try:
@@ -135,6 +232,7 @@ def filter_netbox_cables(cables: List[Dict], allowed_devices: Set[str]) -> List[
 
             # Filter 3: Only cables involving our monitored devices
             cable_involves_our_devices = False
+            involved_devices = []
 
             # Check A terminations
             a_terminations = cable.get('a_terminations', [])
@@ -142,26 +240,26 @@ def filter_netbox_cables(cables: List[Dict], allowed_devices: Set[str]) -> List[
                 device_info = a_term.get('object', {}).get('device', {})
                 if device_info:
                     device_name = device_info.get('name', '')
+                    involved_devices.append(f"A:{device_name}")
                     if device_name in allowed_devices:
                         cable_involves_our_devices = True
-                        break
 
-            # Check B terminations if not already found
-            if not cable_involves_our_devices:
-                b_terminations = cable.get('b_terminations', [])
-                for b_term in b_terminations:
-                    device_info = b_term.get('object', {}).get('device', {})
-                    if device_info:
-                        device_name = device_info.get('name', '')
-                        if device_name in allowed_devices:
-                            cable_involves_our_devices = True
-                            break
+            # Check B terminations
+            b_terminations = cable.get('b_terminations', [])
+            for b_term in b_terminations:
+                device_info = b_term.get('object', {}).get('device', {})
+                if device_info:
+                    device_name = device_info.get('name', '')
+                    involved_devices.append(f"B:{device_name}")
+                    if device_name in allowed_devices:
+                        cable_involves_our_devices = True
 
             if not cable_involves_our_devices:
-                logger.debug(f"Skipping cable {cable.get('id')} - doesn't involve monitored devices")
+                logger.debug(f"Skipping cable {cable.get('id')} - devices {involved_devices} not in monitored set")
                 continue
 
             # Cable passed all filters
+            logger.debug(f"Including cable {cable.get('id')} - involves monitored devices: {involved_devices}")
             filtered_cables.append(cable)
 
         except Exception as e:
@@ -234,7 +332,7 @@ def get_netbox_cables(netbox_url: str, netbox_token: str, site_filter: Optional[
         netbox_url: NetBox base URL
         netbox_token: NetBox API token
         site_filter: Site name or slug to filter by (optional)
-        allowed_devices: Set of device names/IPs to filter by (optional)
+        allowed_devices: Set of device hostnames to filter by (optional)
 
     Returns:
         List of filtered cable dictionaries representing physical connections
@@ -296,7 +394,8 @@ def get_netbox_cables(netbox_url: str, netbox_token: str, site_filter: Optional[
         return []
 
 def get_netbox_connections(netbox_url: str, netbox_token: str, site_filter: Optional[str] = None,
-                          device_config_string: Optional[str] = None) -> List[Dict]:
+                          device_config_string: Optional[str] = None, device_username: Optional[str] = None,
+                          device_password: Optional[str] = None, device_port: int = 22) -> List[Dict]:
     """
     Fetch and process NetBox topology connections with comprehensive filtering
 
@@ -305,15 +404,22 @@ def get_netbox_connections(netbox_url: str, netbox_token: str, site_filter: Opti
         netbox_token: NetBox API token
         site_filter: Site name or slug to filter by (optional)
         device_config_string: Comma-separated string of device IPs from config (optional)
+        device_username: SSH username for devices (required if device_config_string provided)
+        device_password: SSH password for devices (required if device_config_string provided)
+        device_port: SSH port for devices (default 22)
 
     Returns:
         List of connection dictionaries in a standardized format
     """
-    # Parse allowed devices from config if provided
+    # Resolve actual hostnames from device IPs if provided
     allowed_devices = None
-    if device_config_string:
-        allowed_devices = get_device_names_from_config(device_config_string)
-        logger.info(f"Filtering NetBox connections for devices: {allowed_devices}")
+    if device_config_string and device_username and device_password:
+        allowed_devices = get_allowed_hostnames_from_config(
+            device_config_string, device_username, device_password, device_port
+        )
+        logger.info(f"Filtering NetBox connections for resolved hostnames: {allowed_devices}")
+    elif device_config_string:
+        logger.warning("Device config provided but missing credentials - cannot resolve hostnames")
 
     # Fetch filtered cables
     cables = get_netbox_cables(netbox_url, netbox_token, site_filter, allowed_devices)
@@ -373,14 +479,17 @@ def get_netbox_connections(netbox_url: str, netbox_token: str, site_filter: Opti
             logger.warning(f"Failed to process cable {cable.get('id', 'unknown')}: {e}")
             continue
 
-    if site_filter and device_config_string:
-        logger.info(f"Processed {len(connections)} valid connections from NetBox cables for site '{site_filter}' and specified devices")
-    elif site_filter:
-        logger.info(f"Processed {len(connections)} valid connections from NetBox cables for site '{site_filter}'")
-    elif device_config_string:
-        logger.info(f"Processed {len(connections)} valid connections from NetBox cables for specified devices")
+    # Log summary based on what filters were applied
+    filter_description = []
+    if site_filter:
+        filter_description.append(f"site '{site_filter}'")
+    if allowed_devices:
+        filter_description.append(f"devices {allowed_devices}")
+
+    if filter_description:
+        logger.info(f"Processed {len(connections)} valid connections from NetBox cables for {' and '.join(filter_description)}")
     else:
-        logger.info(f"Processed {len(connections)} valid connections from NetBox cables (all sites and devices)")
+        logger.info(f"Processed {len(connections)} valid connections from NetBox cables (no filters applied)")
 
     return connections
 
@@ -496,21 +605,26 @@ if __name__ == "__main__":
     netbox_url = "https://netbox.example.com"
     netbox_token = "your-netbox-token"
     site_filter = "datacenter-1"  # Optional: filter by site
-    device_config = "192.168.1.10,192.168.1.11,192.168.1.12"  # Optional: filter by devices
+    device_config = "192.168.1.10,192.168.1.11,192.168.1.12"  # Device IPs from config
+    device_username = "admin"
+    device_password = "password"
 
     # List available sites
     sites = get_netbox_sites(netbox_url, netbox_token)
     print(f"Available sites: {[site['name'] for site in sites]}")
 
-    # Fetch NetBox data (with optional site and device filtering)
+    # Fetch NetBox data (with hostname resolution and filtering)
     devices = get_netbox_devices(netbox_url, netbox_token, site_filter)
-    connections = get_netbox_connections(netbox_url, netbox_token, site_filter, device_config)
+    connections = get_netbox_connections(
+        netbox_url, netbox_token, site_filter, 
+        device_config, device_username, device_password
+    )
 
     print(f"Found {len(devices)} devices and {len(connections)} connections in NetBox")
     if site_filter:
         print(f"Filtered by site: {site_filter}")
     if device_config:
-        print(f"Filtered by devices: {device_config}")
+        print(f"Filtered by resolved hostnames from device IPs: {device_config}")
 
     # Example LLDP data (would come from your LLDP collection)
     example_lldp = [
