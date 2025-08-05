@@ -7,3 +7,6 @@ logs/
 data/
 __pycache__/
 response.json
+network_inventory.db
+q_create.py 
+.mypy_cache
